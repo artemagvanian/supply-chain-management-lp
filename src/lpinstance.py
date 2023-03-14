@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from docplex.mp.model import *
 
+VISUALIZE = False
+
 
 @dataclass()
 class LPInstance:
@@ -85,11 +87,11 @@ class LPSolver:
         self.build_constraints()
 
     def build_constraints(self):
-        # Create an FC-matrix
+        # Create an FC-matrix -- fc_matrix[facility][customer]
         for i in range(self.lp_instance.num_facilities):
             f_row = []
             for j in range(self.lp_instance.num_customers):
-                f_row.append(self.model.continuous_var(0))
+                f_row.append(self.model.continuous_var(0, name=f"F{i}C{j}"))
             self.fc_matrix.append(f_row)
 
         # Enforce capacity constraints
@@ -101,24 +103,28 @@ class LPSolver:
             c_col = [f[i] for f in self.fc_matrix]
             self.model.add_constraint(self.model.sum(c_col) == self.lp_instance.demand_c[i])
 
-        # Enforce total distance constraints
+        # Enforce total distance constraints (linear relaxation of the truck constraint)
         for i in range(self.lp_instance.num_facilities):
+            # Multiply distance by the proportion of demand served
             distances = [self.fc_matrix[i][j] * self.lp_instance.distance_cf[j][i] / self.lp_instance.demand_c[j]
                          for j in range(self.lp_instance.num_customers)]
+            # Total distance is <= than the maximum number of trucks * truck distance limit
             self.model.add_constraint(self.model.sum(distances) <=
                                       self.lp_instance.num_max_vehicle_per_facility * self.lp_instance.truck_dist_limit)
 
+        # Calculate opening cost as a proportion of capacity used
         opening_cost = self.model.sum([
             self.model.sum(self.fc_matrix[i]) / self.lp_instance.capacity_f[i] * self.lp_instance.opening_cost_f[i]
             for i in range(self.lp_instance.num_facilities)])
 
+        # Calculate service cost as a proportion of customer demand
         service_cost = 0
-
         for i in range(self.lp_instance.num_facilities):
             for j in range(self.lp_instance.num_customers):
                 service_cost += \
                     self.lp_instance.alloc_cost_cf[j][i] * self.fc_matrix[i][j] / self.lp_instance.demand_c[j]
 
+        # Calculate truck usage cost as a (not necessarily integer) number of trucks used
         truck_usage_cost = self.model.sum([
             self.model.sum(self.fc_matrix[i]) / self.lp_instance.truck_dist_limit * self.lp_instance.truck_usage_cost
             for i in range(self.lp_instance.num_facilities)])
@@ -129,8 +135,10 @@ class LPSolver:
 
     def solve(self):
         solution = self.model.solve()
-        # self.model.print_information()
-        # self.visualize_lp(solution)
+        if VISUALIZE:
+            self.model.print_information()
+            print(self.model.pprint_as_string())
+            self.visualize_lp(solution)
         return self.model.objective_value
 
     def visualize_lp(self, solution):
@@ -140,11 +148,11 @@ class LPSolver:
                 if solution[self.fc_matrix[i][j]] != 0:
                     G.add_node(f"F{i}", color="red")
                     G.add_node(f"C{j}", color="blue")
-                    G.add_edge(f"F{i}", f"C{j}", label=solution[self.fc_matrix[i][j]])
+                    G.add_edge(f"F{i}", f"C{j}", label=f"{solution[self.fc_matrix[i][j]]}")
 
-        plt.figure(1, figsize=(10, 10), dpi=300)
+        plt.figure(figsize=(10, 10), dpi=300)
 
-        pos = nx.spring_layout(G, k=0.2, iterations=30)
+        pos = nx.nx_pydot.graphviz_layout(G)
 
         nx.draw(G, pos, with_labels=True, font_size=8, font_color="white",
                 node_color=[d['color'] for n, d in G.nodes(data=True)])
