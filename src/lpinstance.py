@@ -106,7 +106,7 @@ class LPSolver:
         # Enforce total distance constraints (linear relaxation of the truck constraint)
         for i in range(self.lp_instance.num_facilities):
             # Multiply distance by the proportion of demand served
-            distances = [self.fc_matrix[i][j] * self.lp_instance.distance_cf[j][i] / self.lp_instance.demand_c[j]
+            distances = [(self.fc_matrix[i][j] / self.lp_instance.demand_c[j]) * self.lp_instance.distance_cf[j][i]
                          for j in range(self.lp_instance.num_customers)]
             # Total distance is <= than the maximum number of trucks * truck distance limit
             self.model.add_constraint(self.model.sum(distances) <=
@@ -122,12 +122,15 @@ class LPSolver:
         for i in range(self.lp_instance.num_facilities):
             for j in range(self.lp_instance.num_customers):
                 service_cost += \
-                    self.lp_instance.alloc_cost_cf[j][i] * self.fc_matrix[i][j] / self.lp_instance.demand_c[j]
+                    self.lp_instance.alloc_cost_cf[j][i] * (self.fc_matrix[i][j] / self.lp_instance.demand_c[j])
 
         # Calculate truck usage cost as a (not necessarily integer) number of trucks used
-        truck_usage_cost = self.model.sum([
-            self.model.sum(self.fc_matrix[i]) / self.lp_instance.truck_dist_limit * self.lp_instance.truck_usage_cost
-            for i in range(self.lp_instance.num_facilities)])
+        truck_usage_cost = 0
+        for i in range(self.lp_instance.num_facilities):
+            distances = [(self.fc_matrix[i][j] / self.lp_instance.demand_c[j]) * self.lp_instance.distance_cf[j][i]
+                         for j in range(self.lp_instance.num_customers)]
+            truck_usage_cost += self.model.sum(
+                distances) / self.lp_instance.truck_dist_limit * self.lp_instance.truck_usage_cost
 
         total_cost = opening_cost + service_cost + truck_usage_cost
 
