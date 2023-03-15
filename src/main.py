@@ -1,4 +1,5 @@
 import json
+import math
 from argparse import ArgumentParser
 from pathlib import Path
 
@@ -22,7 +23,7 @@ def main(args):
     printSol = {
         "Instance": filename,
         "Time": timer.get_elapsed(),
-        "Result": round(sol, 2),
+        "Result": math.ceil(sol),
         "Solution": "OPT"
     }
 
